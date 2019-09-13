@@ -27,4 +27,4 @@ ENV SCRIPT python2.7 ../x.py test \
   --exclude src/tools/linkchecker
 
 ENV NO_LLVM_ASSERTIONS=1
-ENV NO_DEBUG_ASSERTIONS=1
+#ENV NO_DEBUG_ASSERTIONS=1
