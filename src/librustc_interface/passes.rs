@@ -56,6 +56,7 @@ use std::path::PathBuf;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+//Note-to-self: parse() in rustc_interface
 pub fn parse<'a>(sess: &'a Session, input: &Input) -> PResult<'a, ast::Crate> {
     sess.diagnostic()
         .set_continue_after_error(sess.opts.debugging_opts.continue_parse_after_error);

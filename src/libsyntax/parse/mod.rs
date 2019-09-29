@@ -170,6 +170,7 @@ pub enum DirectoryOwnership {
 // uses a HOF to parse anything, and <source> includes file and
 // `source_str`.
 
+// Note-to-self: parsing new file
 pub fn parse_crate_from_file<'a>(input: &Path, sess: &'a ParseSess) -> PResult<'a, ast::Crate> {
     let mut parser = new_parser_from_file(sess, input);
     parser.parse_crate_mod()
