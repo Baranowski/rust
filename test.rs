@@ -19,29 +19,24 @@ enum Shape {
 }
 impl Shape {
 	fn draw(&self) {
-            let _guard = StackDebug::new("Shape::draw");
 		match *self {
 			Shape::Circle{center: ref p, radius: ref f} => draw_circle(p, f),
 			Shape::Rectangle{top_left: ref p1, bottom_right: ref p2} => draw_rectangle(p1, p2)
 		}
 	}
 	pub fn new_circle(area: f64) -> Shape {
-            let _guard = StackDebug::new("Shape::new_circle");
 		let center = Point{x: 0.0, y: 0.0};
 		let radius = (area / PI).sqrt();
 		Shape::Circle{center: center, radius: radius}
 	}
 }
 fn draw_circle(p: &Point, f: &f64) {
-            let _guard = StackDebug::new("draw_circle");
 	println!("draw_circle({:?}, {:?})", p, f);
 }
 fn draw_rectangle(p1: &Point, p2: &Point) {
-            let _guard = StackDebug::new("draw_rectangle");
 	println!("draw_rectangle({:?}, {:?})", p1, p2);
 }
 fn main() {
-            let _guard = StackDebug::new("main");
 	let c = Shape::Circle{center: Point { x: 1.0, y: 2.0 }, radius: 3.0};
 	c.draw();
 
