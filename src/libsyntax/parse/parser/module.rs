@@ -33,6 +33,7 @@ impl<'a> Parser<'a> {
             module: self.parse_mod_items(&token::Eof, lo)?,
             span: lo.to(self.token.span),
         });
+        debug!("{:?}", krate);
         krate
     }
 
