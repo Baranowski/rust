@@ -133,7 +133,6 @@ pub mod util {
     pub mod nodemap;
     pub mod profiling;
     pub mod bug;
-    pub mod landscape;
 }
 
 // Allows macros to refer to this crate as `::rustc`

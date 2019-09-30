@@ -1,12 +1,20 @@
-use std::fs::File;
-use std::io::Write;
+//! Dummy
+#![stable(feature = "landscape", since = "1.3.0")]
+
+use crate::fs::File;
+use crate::io::Write;
 
 static mut DUMP_FILE: Option<File> = None;
+/// Dummy
+#[derive(Debug)]
+#[stable(feature = "landscape", since = "1.3.0")]
 pub struct StackDebug {
     s: &'static str,
 }
 
 impl StackDebug {
+    /// Dummy
+    #[stable(feature = "landscape", since = "1.3.0")]
     pub fn new(s: &'static str) -> StackDebug {
         unsafe{
             if let None = DUMP_FILE {
@@ -18,6 +26,7 @@ impl StackDebug {
     }
 }
 
+#[stable(feature = "landscape", since = "1.3.0")]
 impl Drop for StackDebug {
     fn drop(&mut self) {
         unsafe{

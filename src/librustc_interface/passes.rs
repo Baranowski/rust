@@ -36,10 +36,11 @@ use rustc_typeck as typeck;
 use syntax::{self, ast, visit};
 use syntax::early_buffered_lints::BufferedEarlyLint;
 use syntax::ext::base::{NamedSyntaxExtension, ExtCtxt};
-use syntax::mut_visit::MutVisitor;
+use syntax::mut_visit::{MutVisitor, noop_visit_item_kind, noop_visit_mac};
 use syntax::parse::{self, PResult};
 use syntax::util::node_count::NodeCounter;
 use syntax::symbol::Symbol;
+use syntax::ast::{ItemKind, Mac};
 use syntax_pos::FileName;
 use syntax_ext;
 
@@ -56,17 +57,50 @@ use std::path::PathBuf;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use log::debug;
+
+struct LandscapeVisitor {
+    pub stmts: Vec<ast::Stmt>,
+}
+
+impl LandscapeVisitor {
+    fn new() -> LandscapeVisitor {
+        let v = Vec::<ast::Stmt>::new();
+        LandscapeVisitor{stmts: v}
+    }
+}
+
+impl MutVisitor for LandscapeVisitor {
+    fn visit_item_kind(&mut self, i: &mut ItemKind) {
+        if let ItemKind::Fn(.., block) = i {
+            let mut extended_stmts = self.stmts.clone();
+            extended_stmts.append(&mut block.stmts);
+            block.stmts = extended_stmts;
+        }
+        noop_visit_item_kind(i, self);
+    }
+    fn visit_mac(&mut self, _mac: &mut Mac) {
+        noop_visit_mac(_mac, self);
+    }
+}
+
 //Note-to-self: parse() in rustc_interface
 pub fn parse<'a>(sess: &'a Session, input: &Input) -> PResult<'a, ast::Crate> {
     sess.diagnostic()
         .set_continue_after_error(sess.opts.debugging_opts.continue_parse_after_error);
     sess.profiler(|p| p.start_activity("parsing"));
-    let krate = time(sess, "parsing", || match *input {
-        Input::File(ref file) => parse::parse_crate_from_file(file, &sess.parse_sess),
+    let mut krate = time(sess, "parsing", || match *input {
+        Input::File(ref file) => {
+            debug!("File: {:?}", file);
+            parse::parse_crate_from_file(file, &sess.parse_sess)
+        }
         Input::Str {
             ref input,
             ref name,
-        } => parse::parse_crate_from_source_str(name.clone(), input.clone(), &sess.parse_sess),
+        } => {
+            debug!("Name: {:?}", name);
+            parse::parse_crate_from_source_str(name.clone(), input.clone(), &sess.parse_sess)
+        }
     })?;
     sess.profiler(|p| p.end_activity("parsing"));
 
@@ -92,6 +126,43 @@ pub fn parse<'a>(sess: &'a Session, input: &Input) -> PResult<'a, ast::Crate> {
         hir_stats::print_ast_stats(&krate, "PRE EXPANSION AST STATS");
     }
 
+    debug!("original crate: {:?}", krate);
+
+    let inject_crate_name = match *input {
+        Input::File(ref file) => file.to_str().unwrap().to_owned(),
+        Input::Str{input: _, ref name} => name.to_string(),
+    };
+    if inject_crate_name.find("src/libcore/").is_some() ||
+        inject_crate_name.find("/.cargo/").is_some() ||
+        inject_crate_name.find("src/libpanic").is_some() ||
+        inject_crate_name.find("src/libstd/").is_some() ||
+        inject_crate_name.find("src/libtest/").is_some() ||
+        inject_crate_name.find("src/liballoc/").is_some()
+    {
+        return Ok(krate);
+    }
+
+    let inject_code = {
+        let crate_std_ref = if inject_crate_name.find("src/libstd/").is_some()
+            { "crate"} else { "std" };
+        "fn a() {
+            use ".to_owned() + crate_std_ref + "::landscape::StackDebug;
+            let _landscape_guard = StackDebug::new(\"Shape::new_circle\");
+        }"
+    };
+    let inject_crate = parse::parse_crate_from_source_str(
+        FileName::Custom(inject_crate_name),
+        inject_code,
+        &sess.parse_sess,
+    ).unwrap();
+    let mut visitor = LandscapeVisitor::new();
+    if let ItemKind::Fn(.., ref inject_block) = inject_crate.module.items[0].kind {
+        visitor.stmts = inject_block.stmts.clone();
+    } else {
+        panic!("Injected code has unexpected structure: {:?}", inject_crate);
+    }
+    debug!("inject_crate: {:?}", inject_crate);
+    visitor.visit_crate(&mut krate);
     Ok(krate)
 }
 

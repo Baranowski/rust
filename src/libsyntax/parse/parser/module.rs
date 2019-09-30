@@ -11,6 +11,8 @@ use crate::symbol::sym;
 
 use std::path::{self, Path, PathBuf};
 
+use log::debug;
+
 /// Information about the path to a module.
 pub struct ModulePath {
     name: String,
