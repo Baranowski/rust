@@ -1,5 +1,5 @@
 //! Dummy
-#![stable(feature = "landscape", since = "1.3.0")]
+#![stable(feature = "stacktraceflow", since = "1.3.0")]
 
 use crate::fs::File;
 use crate::io::Write;
@@ -7,27 +7,27 @@ use crate::io::Write;
 static mut DUMP_FILE: Option<File> = None;
 /// Dummy
 #[derive(Debug)]
-#[stable(feature = "landscape", since = "1.3.0")]
-pub struct StackDebug {
+#[stable(feature = "stacktraceflow", since = "1.3.0")]
+pub struct StackTraceFlower {
     s: &'static str,
 }
 
-impl StackDebug {
+impl StackTraceFlower {
     /// Dummy
-    #[stable(feature = "landscape", since = "1.3.0")]
-    pub fn new(s: &'static str) -> StackDebug {
+    #[stable(feature = "stacktraceflow", since = "1.3.0")]
+    pub fn new(s: &'static str) -> StackTraceFlower {
         unsafe{
             if let None = DUMP_FILE {
                 DUMP_FILE = Some(File::create("dump_file.txt").unwrap());
             }
             write!(DUMP_FILE.as_mut().unwrap(), "+{}\n", &s).unwrap();
         }
-        StackDebug{s}
+        StackTraceFlower{s}
     }
 }
 
-#[stable(feature = "landscape", since = "1.3.0")]
-impl Drop for StackDebug {
+#[stable(feature = "stacktraceflow", since = "1.3.0")]
+impl Drop for StackTraceFlower {
     fn drop(&mut self) {
         unsafe{
             write!(DUMP_FILE.as_mut().unwrap(), "-{}\n", &self.s).unwrap();

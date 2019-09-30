@@ -59,18 +59,18 @@ use std::rc::Rc;
 
 use log::debug;
 
-struct LandscapeVisitor {
+struct StackTraceFlowVisitor {
     pub stmts: Vec<ast::Stmt>,
 }
 
-impl LandscapeVisitor {
-    fn new() -> LandscapeVisitor {
+impl StackTraceFlowVisitor {
+    fn new() -> StackTraceFlowVisitor {
         let v = Vec::<ast::Stmt>::new();
-        LandscapeVisitor{stmts: v}
+        StackTraceFlowVisitor{stmts: v}
     }
 }
 
-impl MutVisitor for LandscapeVisitor {
+impl MutVisitor for StackTraceFlowVisitor {
     fn visit_item_kind(&mut self, i: &mut ItemKind) {
         if let ItemKind::Fn(.., block) = i {
             let mut extended_stmts = self.stmts.clone();
@@ -146,8 +146,8 @@ pub fn parse<'a>(sess: &'a Session, input: &Input) -> PResult<'a, ast::Crate> {
         let crate_std_ref = if inject_crate_name.find("src/libstd/").is_some()
             { "crate"} else { "std" };
         "fn a() {
-            use ".to_owned() + crate_std_ref + "::landscape::StackDebug;
-            let _landscape_guard = StackDebug::new(\"Shape::new_circle\");
+            use ".to_owned() + crate_std_ref + "::stacktraceflow::StackTraceFlower;
+            let _stacktraceflow_guard = StackDebug::new(\"Shape::new_circle\");
         }"
     };
     let inject_crate = parse::parse_crate_from_source_str(
@@ -155,7 +155,7 @@ pub fn parse<'a>(sess: &'a Session, input: &Input) -> PResult<'a, ast::Crate> {
         inject_code,
         &sess.parse_sess,
     ).unwrap();
-    let mut visitor = LandscapeVisitor::new();
+    let mut visitor = StackTraceFlowVisitor::new();
     if let ItemKind::Fn(.., ref inject_block) = inject_crate.module.items[0].kind {
         visitor.stmts = inject_block.stmts.clone();
     } else {
