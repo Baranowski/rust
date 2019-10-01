@@ -2,6 +2,8 @@ use crate::interface::{Compiler, Result};
 use crate::util;
 use crate::proc_macro_decls;
 
+use smallvec::SmallVec;
+
 use log::{info, warn, log_enabled};
 use rustc::dep_graph::DepGraph;
 use rustc::hir;
@@ -37,11 +39,13 @@ use syntax::{self, ast, visit};
 use syntax::early_buffered_lints::BufferedEarlyLint;
 use syntax::ext::base::{NamedSyntaxExtension, ExtCtxt};
 use syntax::mut_visit::{MutVisitor, noop_visit_item_kind, noop_visit_mac};
+use syntax::mut_visit;
 use syntax::parse::{self, PResult};
 use syntax::util::node_count::NodeCounter;
 use syntax::symbol::Symbol;
 use syntax::ast::{ItemKind, Mac};
-use syntax_pos::FileName;
+use syntax_pos::{FileName, Span};
+use syntax::ptr::P;
 use syntax_ext;
 
 use rustc_serialize::json;
@@ -59,28 +63,98 @@ use std::rc::Rc;
 
 use log::debug;
 
-struct StackTraceFlowVisitor {
+struct StackTraceFlowVisitor<'a> {
     pub stmts: Vec<ast::Stmt>,
+    pub path: Vec<String>,
+    pub spans: Vec<Span>,
+    pub parse_sess: &'a syntax::parse::ParseSess,
 }
 
-impl StackTraceFlowVisitor {
-    fn new() -> StackTraceFlowVisitor {
+impl<'a> StackTraceFlowVisitor<'a> {
+    fn new(parse_sess: &'a syntax::parse::ParseSess) -> StackTraceFlowVisitor<'a> {
         let v = Vec::<ast::Stmt>::new();
-        StackTraceFlowVisitor{stmts: v}
+        let p = Vec::<String>::new();
+        let s = Vec::<Span>::new();
+        StackTraceFlowVisitor{stmts: v, path: p, spans: s, parse_sess: &parse_sess}
     }
 }
 
-impl MutVisitor for StackTraceFlowVisitor {
+impl MutVisitor for StackTraceFlowVisitor<'_> {
+    fn visit_mac(&mut self, _mac: &mut Mac) {
+        noop_visit_mac(_mac, self);
+    }
+
     fn visit_item_kind(&mut self, i: &mut ItemKind) {
-        if let ItemKind::Fn(.., block) = i {
+        if let ItemKind::Fn(ref _decl, ref header, ref _generics, ref mut block) = i {
+            if header.constness.node == ast::Constness::Const {
+                return;
+            }
             let mut extended_stmts = self.stmts.clone();
             extended_stmts.append(&mut block.stmts);
             block.stmts = extended_stmts;
         }
         noop_visit_item_kind(i, self);
     }
-    fn visit_mac(&mut self, _mac: &mut Mac) {
-        noop_visit_mac(_mac, self);
+
+    fn flat_map_item(&mut self, i: P<ast::Item>) -> SmallVec<[P<ast::Item>; 1]> {
+        if let ast::ItemKind::Fn(..) = i.kind {
+            self.spans.push(i.span);
+            self.path.push(i.ident.name.to_string());
+            let result = mut_visit::noop_flat_map_item(i, self);
+            self.path.pop();
+            self.spans.pop();
+            result
+        } else if let ast::ItemKind::Impl(ref _unsafety, ref _polarity, ref _defaultness, ref _generics, ref _trait, ref ty, ref _items) = i.kind {
+            self.spans.push(i.span);
+            self.path.push(syntax::print::pprust::ty_to_string(&*ty));
+            let result = mut_visit::noop_flat_map_item(i, self);
+            self.path.pop();
+            self.spans.pop();
+            result
+        } else {
+            mut_visit::noop_flat_map_item(i, self)
+        }
+    }
+    fn flat_map_impl_item(&mut self, i: ast::ImplItem) -> SmallVec<[ast::ImplItem; 1]> {
+        let mut i = i.clone();
+        if let ast::ImplItemKind::Method(ref sig, ref mut body) = i.kind {
+            if sig.header.constness.node == ast::Constness::Const {
+                return mut_visit::noop_flat_map_impl_item(i, self);
+            }
+            let mut extended_stmts = self.stmts.clone();
+            extended_stmts.append(&mut body.stmts);
+            body.stmts = extended_stmts;
+
+            self.spans.push(i.span);
+            self.path.push(i.ident.name.to_string());
+            let result = mut_visit::noop_flat_map_impl_item(i, self);
+            self.path.pop();
+            self.spans.pop();
+            result
+        } else {
+            mut_visit::noop_flat_map_impl_item(i, self)
+        }
+    }
+
+    fn visit_expr(&mut self, e: &mut P<ast::Expr>) {
+        if let ast::Expr{kind: ast::ExprKind::Lit(ref mut l), ..} = **e {
+            if let ast::LitKind::Str(ref mut symbol, ref mut _str_style) = l.kind {
+                if symbol.to_string() == "__STACK_TRACE_PLACEHOLDER__".to_owned() {
+                    debug!("Found placeholder symbol, replacing with {:?}", self.path);
+                    *symbol = Symbol::intern(&format!(
+                        "{path} @{span}",
+                        path = self.path.join("::"),
+                        span = match self.spans.last() {
+                            Some(s) => self.parse_sess.source_map().span_to_string(*s),
+                            None    => "UNKNOWN".to_owned(),
+                        },
+                    ));
+                } else {
+                    debug!("symbol.to_string(): {:?}", symbol.to_string());
+                }
+            }
+        }
+        mut_visit::noop_visit_expr(e, self);
     }
 }
 
@@ -128,34 +202,35 @@ pub fn parse<'a>(sess: &'a Session, input: &Input) -> PResult<'a, ast::Crate> {
 
     debug!("original crate: {:?}", krate);
 
-    let inject_crate_name = match *input {
+    let source_path = match *input {
         Input::File(ref file) => file.to_str().unwrap().to_owned(),
         Input::Str{input: _, ref name} => name.to_string(),
     };
-    if inject_crate_name.find("src/libcore/").is_some() ||
-        inject_crate_name.find("/.cargo/").is_some() ||
-        inject_crate_name.find("src/libpanic").is_some() ||
-        inject_crate_name.find("src/libstd/").is_some() ||
-        inject_crate_name.find("src/libtest/").is_some() ||
-        inject_crate_name.find("src/liballoc/").is_some()
+    if source_path.find("src/libcore/").is_some() ||
+        source_path.find("/.cargo/").is_some() ||
+        source_path.find("src/libpanic").is_some() ||
+        source_path.find("src/libstd/").is_some() ||
+        source_path.find("src/libtest/").is_some() ||
+        source_path.find("src/liballoc/").is_some()
     {
         return Ok(krate);
     }
 
     let inject_code = {
-        let crate_std_ref = if inject_crate_name.find("src/libstd/").is_some()
+        let crate_std_ref = if source_path.find("src/libstd/").is_some()
             { "crate"} else { "std" };
         "fn a() {
+            #[allow(unused_imports)]
             use ".to_owned() + crate_std_ref + "::stacktraceflow::StackTraceFlower;
-            let _stacktraceflow_guard = StackDebug::new(\"Shape::new_circle\");
+            let _stacktraceflow_guard = StackTraceFlower::new(\"__STACK_TRACE_PLACEHOLDER__\");
         }"
     };
     let inject_crate = parse::parse_crate_from_source_str(
-        FileName::Custom(inject_crate_name),
+        FileName::Custom(source_path),
         inject_code,
         &sess.parse_sess,
     ).unwrap();
-    let mut visitor = StackTraceFlowVisitor::new();
+    let mut visitor = StackTraceFlowVisitor::<'a>::new(&sess.parse_sess);
     if let ItemKind::Fn(.., ref inject_block) = inject_crate.module.items[0].kind {
         visitor.stmts = inject_block.stmts.clone();
     } else {
