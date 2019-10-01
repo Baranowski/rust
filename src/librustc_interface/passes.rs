@@ -211,6 +211,7 @@ pub fn parse<'a>(sess: &'a Session, input: &Input) -> PResult<'a, ast::Crate> {
         source_path.find("src/libpanic").is_some() ||
         source_path.find("src/libstd/").is_some() ||
         source_path.find("src/libtest/").is_some() ||
+        source_path.find("src/librustc_apfloat/").is_some() ||
         source_path.find("src/liballoc/").is_some()
     {
         return Ok(krate);
