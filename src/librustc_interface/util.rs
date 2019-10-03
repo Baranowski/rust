@@ -2,11 +2,13 @@ use log::info;
 use rustc::session::config::{Input, OutputFilenames, ErrorOutputType};
 use rustc::session::{self, config, early_error, filesearch, Session, DiagnosticOutput};
 use rustc::session::CrateDisambiguator;
+#[allow(unused_imports)]
 use rustc::ty;
 use rustc::lint;
 use rustc_codegen_utils::codegen_backend::CodegenBackend;
 #[cfg(parallel_compiler)]
 use rustc_data_structures::jobserver;
+#[allow(unused_imports)]
 use rustc_data_structures::sync::{Lock, Lrc};
 use rustc_data_structures::stable_hasher::StableHasher;
 use rustc_data_structures::fingerprint::Fingerprint;
@@ -39,6 +41,7 @@ use syntax::symbol::{Symbol, sym};
 use syntax::{self, ast, attr};
 use syntax_pos::edition::Edition;
 #[cfg(not(parallel_compiler))]
+#[allow(unused_imports)]
 use std::{thread, panic};
 
 pub fn diagnostics_registry() -> Registry {
@@ -124,11 +127,14 @@ pub fn create_session(
 // chains or deep syntax trees, except when on Haiku.
 // FIXME(oli-obk): get https://github.com/rust-lang/rust/pull/55617 the finish line
 #[cfg(not(target_os = "haiku"))]
+#[allow(dead_code)]
 const STACK_SIZE: usize = 32 * 1024 * 1024;
 
 #[cfg(target_os = "haiku")]
+#[allow(dead_code)]
 const STACK_SIZE: usize = 16 * 1024 * 1024;
 
+#[allow(dead_code)]
 fn get_stack_size() -> Option<usize> {
     // FIXME: Hacks on hacks. If the env is trying to override the stack size
     // then *don't* set it explicitly.
@@ -148,51 +154,13 @@ impl Write for Sink {
 }
 
 #[cfg(not(parallel_compiler))]
-pub fn scoped_thread<F: FnOnce() -> R + Send, R: Send>(cfg: thread::Builder, f: F) -> R {
-    struct Ptr(*mut ());
-    unsafe impl Send for Ptr {}
-    unsafe impl Sync for Ptr {}
-
-    let mut f = Some(f);
-    let run = Ptr(&mut f as *mut _ as *mut ());
-    let mut result = None;
-    let result_ptr = Ptr(&mut result as *mut _ as *mut ());
-
-    let thread = cfg.spawn(move || {
-        let run = unsafe { (*(run.0 as *mut Option<F>)).take().unwrap() };
-        let result = unsafe { &mut *(result_ptr.0 as *mut Option<R>) };
-        *result = Some(run());
-    });
-
-    match thread.unwrap().join() {
-        Ok(()) => result.unwrap(),
-        Err(p) => panic::resume_unwind(p),
-    }
-}
-
-#[cfg(not(parallel_compiler))]
 pub fn spawn_thread_pool<F: FnOnce() -> R + Send, R: Send>(
-    edition: Edition,
+    _edition: Edition,
     _threads: Option<usize>,
-    stderr: &Option<Arc<Mutex<Vec<u8>>>>,
+    _stderr: &Option<Arc<Mutex<Vec<u8>>>>,
     f: F,
 ) -> R {
-    let mut cfg = thread::Builder::new().name("rustc".to_string());
-
-    if let Some(size) = get_stack_size() {
-        cfg = cfg.stack_size(size);
-    }
-
-    scoped_thread(cfg, || {
-        syntax::with_globals(edition, || {
-            ty::tls::GCX_PTR.set(&Lock::new(0), || {
-                if let Some(stderr) = stderr {
-                    io::set_panic(Some(box Sink(stderr.clone())));
-                }
-                ty::tls::with_thread_locals(|| f())
-            })
-        })
-    })
+    f()
 }
 
 #[cfg(parallel_compiler)]
