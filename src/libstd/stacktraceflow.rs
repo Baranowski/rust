@@ -24,7 +24,7 @@ impl StackTraceFlower {
         DUMP_FILE.with(|f| {
             let mut f_ref = f.borrow_mut();
             if let None = *f_ref {
-                let filename = format!("dump_file.{:?}.txt", thread::current().id());
+                let filename = format!("stacktraceflow.{:?}.txt", thread::current().id());
                 *f_ref = Some(File::create(&filename).unwrap());
             }
             write!(f_ref.as_mut().unwrap(), "+{}\n", &s).unwrap();
